@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paramount Maintenance Contracts</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <div class="logo-mark">P</div>
+        <div>
+          <div class="brand-name">Paramount</div>
+          <div class="brand-sub">Maintenance Contracts</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-link active" data-view="dashboard">Dashboard</button>
+        <button class="nav-link" data-view="contracts">Maintenance Contracts Generated</button>
+        <button class="nav-link" data-view="new-contract">New Contract Set Up</button>
+        <button class="nav-link" data-view="proposal">Proposal Preview</button>
+        <button class="nav-link" data-view="settings">Costing Rules</button>
+      </nav>
+      <div class="side-note">
+        <span class="pill">Demo</span>
+        <p>Prototype costings only. Replace with approved Paramount estimating rules before live use.</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section id="dashboard" class="view active"></section>
+      <section id="contracts" class="view"></section>
+      <section id="new-contract" class="view"></section>
+      <section id="proposal" class="view"></section>
+      <section id="settings" class="view"></section>
+    </main>
+  </div>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
