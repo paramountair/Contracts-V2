@@ -1,3 +1,3 @@
-# Paramount Maintenance Contracts V5
+# Paramount Maintenance Contracts V7
 
-This version removes the separate Proposal Preview page. New Contract Set Up now generates the contract and automatically downloads the client-facing proposal file, then adds the contract to Maintenance Contracts Generated.
+Fixes downloaded proposal styling by embedding proposal CSS directly into the generated HTML file. Keeps fancy dashboard, manual assets, CSV upload and no Proposal Preview nav item.
