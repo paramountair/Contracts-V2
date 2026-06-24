@@ -1,127 +1,29 @@
-let contracts = demoContracts.map(enrichContract);
-let selectedContractId = contracts[0].id;
-
-const $ = (id) => document.getElementById(id);
-const money = (v) => Number(v || 0).toLocaleString("en-AU", {style:"currency", currency:"AUD", maximumFractionDigits:0});
-const today = () => new Date("2026-06-24T09:00:00+10:00");
-
-function visitsFromFrequency(freq, fallback) {
-  const f = String(freq || "").toLowerCase();
-  if (f.includes("month")) return 12;
-  if (f.includes("quarter")) return 4;
-  if (f.includes("six")) return 2;
-  if (f.includes("annual")) return 1;
-  return fallback || 4;
-}
-
-function endDate(start, months) {
-  const d = new Date(start);
-  d.setMonth(d.getMonth() + Number(months));
-  return d;
-}
-
-function daysUntil(date) {
-  return Math.ceil((date - today()) / (1000 * 60 * 60 * 24));
-}
-
-function calculateAssets(assets, targetMargin) {
-  const rows = assets.map((a) => {
-    const rule = COSTING_RULES[a.type] || COSTING_RULES["Split System"];
-    const visits = visitsFromFrequency(a.frequency, rule.visits);
-    const quantity = Number(a.quantity || 1);
-    const labour = quantity * rule.labourHours * visits * LABOUR_RATE;
-    const materials = quantity * rule.baseMaterials * visits;
-    const vehicle = visits * VEHICLE_RATE;
-    const directCost = labour + materials + vehicle;
-    const admin = directCost * ADMIN_PERCENT;
-    const overhead = directCost * OVERHEAD_PERCENT;
-    const projectedCost = directCost + admin + overhead;
-    return {...a, visits, quantity, labour, materials, vehicle, admin, overhead, projectedCost};
-  });
-  const projectedCost = rows.reduce((s,r) => s + r.projectedCost, 0);
-  const marginDecimal = Number(targetMargin || DEFAULT_MARGIN) / 100;
-  const annualValue = projectedCost / (1 - marginDecimal);
-  const profit = annualValue - projectedCost;
-  return {rows, projectedCost, annualValue, profit, monthly: annualValue / 12, margin: profit / annualValue * 100};
-}
-
-function enrichContract(contract) {
-  const calc = calculateAssets(contract.assets, contract.margin);
-  return {...contract, ...calc, endDate: endDate(contract.startDate, contract.term)};
-}
-
-function setView(view) {
-  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
-  document.querySelectorAll(".nav-link").forEach(b => b.classList.remove("active"));
-  $(view).classList.add("active");
-  document.querySelector(`[data-view="${view}"]`).classList.add("active");
-  renderAll();
-}
-
-document.querySelectorAll(".nav-link").forEach(btn => btn.addEventListener("click", () => setView(btn.dataset.view)));
-
-function dashboard() {
-  const active = contracts.filter(c => c.status === "Active");
-  const totalValue = active.reduce((s,c) => s + c.annualValue, 0);
-  const totalProfit = active.reduce((s,c) => s + c.profit, 0);
-  const expiry = (n) => contracts.filter(c => daysUntil(c.endDate) <= n && daysUntil(c.endDate) >= 0).length;
-  return `<div class="page-head"><div><span class="pill navy">INTERNAL DASHBOARD</span><h1>Maintenance Contract Dashboard</h1><p>Overview of active maintenance contracts, revenue, profit and expiry risk.</p></div><button class="primary" onclick="setView('new-contract')">Create New Contract</button></div>
-  <div class="kpi-grid">
-    ${kpi("Total active maintenance contracts", active.length)}
-    ${kpi("Total contracts value", money(totalValue))}
-    ${kpi("Monthly recurring revenue", money(totalValue/12))}
-    ${kpi("Projected gross profit", money(totalProfit))}
-    ${kpi("Expiring in 30 days", expiry(30), true)}
-    ${kpi("Expiring in 60 days", expiry(60), true)}
-    ${kpi("Expiring in 90 days", expiry(90), true)}
-    ${kpi("Proposal pipeline", money(contracts.filter(c=>c.status!=="Active").reduce((s,c)=>s+c.annualValue,0)))}
-  </div>
-  <div class="panel two-col"><div><h2>Contracts by status</h2>${statusBar("Active")} ${statusBar("Outstanding")} ${statusBar("Draft")}</div><div><h2>Recent generated contracts</h2>${contracts.map(c=>`<button class="contract-mini" onclick="selectContract('${c.id}')"><strong>${c.customerName}</strong><span>${money(c.annualValue)} · ${c.status}</span></button>`).join("")}</div></div>`;
-}
-
-function kpi(label, value, accent=false) { return `<div class="kpi ${accent?'accent':''}"><span>${label}</span><strong>${value}</strong></div>`; }
-function statusBar(status) { const count = contracts.filter(c=>c.status===status).length; return `<div class="bar-row"><b>${status} ${count}</b><div class="bar"><span style="width:${Math.max(18,count*28)}%"></span></div></div>`; }
-function selectContract(id) { selectedContractId = id; setView("contracts"); }
-function selectedContract() { return contracts.find(c=>c.id===selectedContractId) || contracts[0]; }
-
-function contractsView() {
-  const c = selectedContract();
-  return `<div class="page-head"><div><span class="pill navy">INTERNAL REVIEW</span><h1>Maintenance Contracts Generated</h1><p>Review outstanding contracts, pricing, cost and margin before issue.</p></div><button class="primary" onclick="downloadProposal()">Download Customer Contract</button></div>
-  <div class="contract-layout"><div class="panel"><h2>Generated contracts</h2>${contracts.map(x=>`<button class="contract-row ${x.id===c.id?'selected':''}" onclick="selectContract('${x.id}')"><span><b>${x.customerName}</b><small>${x.id} · ${x.status}</small></span><strong>${money(x.annualValue)}</strong></button>`).join("")}</div>
-  <div class="panel"><h2>${c.customerName}</h2><p class="muted">${c.siteAddress}</p><div class="detail-grid">${kpi("Annual sell price", money(c.annualValue))}${kpi("Projected cost", money(c.projectedCost))}${kpi("Projected profit", money(c.profit))}${kpi("Gross margin", c.margin.toFixed(1)+"%")}</div><h3>Cost breakdown</h3><table><thead><tr><th>Asset</th><th>Qty</th><th>Visits</th><th>Labour</th><th>Materials</th><th>Cost</th></tr></thead><tbody>${c.rows.map(r=>`<tr><td>${r.type}</td><td>${r.quantity}</td><td>${r.visits}</td><td>${money(r.labour)}</td><td>${money(r.materials)}</td><td>${money(r.projectedCost)}</td></tr>`).join("")}</tbody></table></div></div>`;
-}
-
-function newContractView() {
-  return `<div class="page-head"><div><span class="pill navy">NEW PROPOSAL</span><h1>New Contract Set Up</h1><p>Enter customer details and upload an asset list. This prototype uses fake Paramount costing rules.</p></div></div>
-  <div class="form-panel"><div class="form-grid">
-    <label>Customer name<input id="fCustomer" value="Metro Health Precinct"></label><label>Site address<input id="fAddress" value="250 Collins Street, Melbourne VIC"></label><label>Contact person<input id="fContact" value="Property Manager"></label><label>Email<input id="fEmail" value="property@metrohealth.com.au"></label><label>Phone<input id="fPhone" value="03 8888 5555"></label><label>Start date<input id="fStart" type="date" value="2026-08-01"></label><label>Term months<input id="fTerm" type="number" value="12"></label><label>Target margin %<input id="fMargin" type="number" value="38"></label><label>Status<select id="fStatus"><option>Draft</option><option>Outstanding</option><option>Active</option></select></label>
-  </div><h2>Uploads</h2><div class="upload-grid"><div class="upload-box"><b>Upload asset list CSV</b><input id="assetUpload" type="file" accept=".csv,.json"><small>CSV columns: type, quantity, frequency. Upload works in browser for this demo.</small></div><div class="upload-box"><b>Upload customer documents</b><input type="file" multiple><small>Stored visually only in this static prototype.</small></div></div>
-  <h2>Asset list</h2><div id="assetEditor"></div><div class="action-row"><button class="secondary" onclick="addAssetRow()">Add asset row</button><button class="primary" onclick="generateContract(true)">Generate & Download Contract</button></div><p class="muted">This creates the contract, adds it to Maintenance Contracts Generated, and automatically downloads the client-facing proposal file. No separate preview page is shown.</p></div>`;
-}
-
-let draftAssets = [{type:"Chiller", quantity:1, frequency:"Monthly"},{type:"Air Handling Unit", quantity:12, frequency:"Quarterly"},{type:"Exhaust Fan", quantity:15, frequency:"Six Monthly"}];
-function renderAssetEditor() { const el = $("assetEditor"); if(!el) return; el.innerHTML = draftAssets.map((a,i)=>`<div class="asset-edit"><select onchange="draftAssets[${i}].type=this.value">${Object.keys(COSTING_RULES).map(t=>`<option ${t===a.type?'selected':''}>${t}</option>`).join("")}</select><input type="number" value="${a.quantity}" onchange="draftAssets[${i}].quantity=this.value"><select onchange="draftAssets[${i}].frequency=this.value"><option ${a.frequency==='Monthly'?'selected':''}>Monthly</option><option ${a.frequency==='Quarterly'?'selected':''}>Quarterly</option><option ${a.frequency==='Six Monthly'?'selected':''}>Six Monthly</option><option ${a.frequency==='Annual'?'selected':''}>Annual</option></select></div>`).join(""); }
-function addAssetRow(){ draftAssets.push({type:"Split System", quantity:1, frequency:"Quarterly"}); renderAssetEditor(); }
-function generateContract(downloadNow=true){ const contract = enrichContract({id:`PMA-${26000+contracts.length+1}`, customerName:$("fCustomer").value, siteAddress:$("fAddress").value, contactPerson:$("fContact").value, email:$("fEmail").value, phone:$("fPhone").value, startDate:$("fStart").value, term:Number($("fTerm").value), margin:Number($("fMargin").value), status:$("fStatus").value, assets: draftAssets.map(a=>({...a}))}); contracts.unshift(contract); selectedContractId = contract.id; renderAll(); if(downloadNow){ downloadProposal(); } setView("contracts"); }
-
-function settingsView(){ return `<div class="page-head"><div><span class="pill navy">PRICING ENGINE</span><h1>Costing Rules</h1><p>Prototype rates used to calculate labour, materials, overhead and target margin.</p></div></div><div class="panel"><table><thead><tr><th>Asset type</th><th>Labour hrs / visit</th><th>Default visits</th><th>Materials / visit</th></tr></thead><tbody>${Object.entries(COSTING_RULES).map(([k,v])=>`<tr><td>${k}</td><td>${v.labourHours}</td><td>${v.visits}</td><td>${money(v.baseMaterials)}</td></tr>`).join("")}</tbody></table><p class="muted">Labour rate ${money(LABOUR_RATE)}/hr · Vehicle ${money(VEHICLE_RATE)}/visit · Admin ${ADMIN_PERCENT*100}% · Overhead ${OVERHEAD_PERCENT*100}%</p></div>`; }
-
-function proposalDocument(c){ return `<article class="proposal-doc" id="proposalDoc">
-<section class="proposal-page cover"><div class="proposal-top"><div><div class="proposal-logo"><span>P</span><b>Paramount</b></div><p>Comfort Engineered for Australia</p></div><div class="proposal-ref">${c.id}</div></div><div class="cover-title"><span class="pill orange">PREVENTATIVE MAINTENANCE PROPOSAL</span><h1>${c.customerName}</h1><p>${c.siteAddress}</p></div><div class="cover-summary"><div><span>Annual contract value</span><strong>${money(c.annualValue)}</strong></div><div><span>Contract term</span><strong>${c.term} months</strong></div><div><span>Prepared date</span><strong>24 June 2026</strong></div></div></section>
-<section class="proposal-page"><h1>Executive Summary</h1><p>Paramount Airconditioning has prepared a preventative maintenance program for ${c.customerName}. The program is designed to maintain HVAC reliability, support asset life and reduce the likelihood of unplanned equipment downtime.</p><p>The proposed service schedule covers ${assetSentence(c.assets)}. Maintenance will be completed by qualified technicians and documented through service reports following each attendance.</p><div class="proposal-card-grid"><div><span>Total maintained assets</span><strong>${c.assets.reduce((s,a)=>s+Number(a.quantity),0)}</strong></div><div><span>Annual service visits</span><strong>${c.rows.reduce((s,r)=>s+r.visits,0)}</strong></div><div><span>Monthly equivalent</span><strong>${money(c.monthly)}</strong></div></div></section>
-<section class="proposal-page"><h1>Asset Schedule</h1><table><thead><tr><th>Asset Type</th><th>Quantity</th><th>Frequency</th><th>Annual Visits</th></tr></thead><tbody>${c.rows.map(r=>`<tr><td>${r.type}</td><td>${r.quantity}</td><td>${r.frequency}</td><td>${r.visits}</td></tr>`).join("")}</tbody></table><p class="muted">A detailed equipment schedule may be attached as Appendix A where manufacturer, model, serial number and location details are available.</p></section>
-<section class="proposal-page"><h1>Maintenance Methodology</h1>${c.assets.map(a=>methodBlock(a)).join("")}</section>
-<section class="proposal-page"><h1>Annual Service Calendar</h1><p>The maintenance program is structured to provide regular attendance throughout the contract term.</p>${calendar(c)}</section>
-<section class="proposal-page"><h1>Commercial Summary</h1><table><tbody><tr><th>Client</th><td>${c.customerName}</td></tr><tr><th>Site</th><td>${c.siteAddress}</td></tr><tr><th>Contract term</th><td>${c.term} months</td></tr><tr><th>Annual preventative maintenance value</th><td><strong>${money(c.annualValue)} + GST</strong></td></tr><tr><th>Monthly equivalent</th><td>${money(c.monthly)} + GST</td></tr></tbody></table><p>This proposal is based on the supplied asset schedule and excludes major repairs, replacement works, after-hours attendance and works outside the agreed preventative maintenance scope unless stated otherwise.</p></section>
-<section class="proposal-page acceptance"><h1>Acceptance</h1><p>By signing below, the client confirms acceptance of this preventative maintenance proposal.</p><div class="sign-grid"><div><b>Client acceptance</b><span>Name</span><span>Position</span><span>Signature</span><span>Date</span></div><div><b>Paramount Airconditioning</b><span>Name</span><span>Position</span><span>Signature</span><span>Date</span></div></div><footer>Paramount Airconditioning (Aust) Pty Ltd · 39–41 Geddes Street, Mulgrave VIC 3170 · paramountair.com.au</footer></section>
-</article>`; }
-
-function assetSentence(assets){ return assets.map(a=>`${a.quantity} ${a.type}${Number(a.quantity)>1?'s':''}`).join(", "); }
-function methodBlock(a){ const rule=COSTING_RULES[a.type] || COSTING_RULES["Split System"]; return `<div class="method"><h2>${a.type}</h2><p>${a.frequency} preventative maintenance for ${a.quantity} asset${Number(a.quantity)>1?'s':''}, including:</p><ul>${rule.scope.map(s=>`<li>${s}</li>`).join("")}</ul></div>`; }
-function calendar(c){ const months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return `<div class="service-calendar">${months.map((m,i)=>`<div><b>${m}</b><span>${c.rows.filter(r => (r.frequency.includes('Monthly')) || (r.frequency.includes('Quarterly') && i%3===0) || (r.frequency.includes('Six') && i%6===0) || (r.frequency.includes('Annual') && i===0)).map(r=>r.type).join('<br>') || '—'}</span></div>`).join("")}</div>`; }
-
-function printProposal(){ window.print(); }
-function downloadProposal(){ const html = `<!doctype html><html><head><meta charset="UTF-8"><title>${selectedContract().customerName} Proposal</title><link rel="stylesheet" href="styles.css"></head><body>${proposalDocument(selectedContract())}</body></html>`; const blob=new Blob([html],{type:"text/html"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`${selectedContract().customerName.replaceAll(' ','-')}-Maintenance-Proposal.html`; a.click(); }
-
-function renderAll(){ $("dashboard").innerHTML=dashboard(); $("contracts").innerHTML=contractsView(); $("new-contract").innerHTML=newContractView(); $("settings").innerHTML=settingsView(); renderAssetEditor(); }
+let contracts = JSON.parse(JSON.stringify(DEMO_CONTRACTS));
+let selectedId = contracts[0].id;
+let workingAssets = [{type:"Package Unit",quantity:5,frequency:"Quarterly"}];
+const $ = (s)=>document.querySelector(s); const $$=(s)=>document.querySelectorAll(s);
+const money = (v)=>Number(v||0).toLocaleString('en-AU',{style:'currency',currency:'AUD',maximumFractionDigits:0});
+const today = ()=>new Date('2026-06-24T09:00:00+10:00');
+function endDate(c){let d=new Date(c.startDate); d.setMonth(d.getMonth()+Number(c.term||12)); return d}
+function daysUntil(d){return Math.ceil((d-today())/86400000)}
+function visitsFor(freq,type){let f=(freq||'').toLowerCase(); if(f.includes('month'))return 12;if(f.includes('six'))return 2;if(f.includes('quarter'))return 4;return COSTING_RULES[type]?.visits||4}
+function calc(c){let rows=c.assets.map(a=>{let r=COSTING_RULES[a.type]||COSTING_RULES['Split System']; let visits=visitsFor(a.frequency,a.type); let labour=Number(a.quantity)*r.labourHours*visits*PARAMOUNT_SETTINGS.labourRate; let materials=Number(a.quantity)*r.materials*visits; let vehicle=visits*PARAMOUNT_SETTINGS.vehiclePerVisit; let direct=labour+materials+vehicle; let overhead=direct*PARAMOUNT_SETTINGS.overheadPercent; let admin=direct*PARAMOUNT_SETTINGS.adminPercent; let contingency=direct*PARAMOUNT_SETTINGS.contingencyPercent; let cost=direct+overhead+admin+contingency; return {...a,visits,labour,materials,vehicle,overhead,admin,contingency,cost,risk:r.risk}}); let cost=rows.reduce((s,r)=>s+r.cost,0); let annual=cost/(1-Number(c.margin||35)/100); let profit=annual-cost; return {rows,cost,annual,profit,monthly:annual/12,margin:annual?profit/annual*100:0}}
+function setView(id){$$('.view').forEach(v=>v.classList.remove('active')); $('#'+id).classList.add('active'); $$('.nav-link').forEach(b=>b.classList.toggle('active',b.dataset.view===id)); renderAll()}
+function metrics(){let calcs=contracts.map(calc); let active=contracts.filter(c=>c.status==='Active').length; let annual=calcs.reduce((s,c)=>s+c.annual,0); let profit=calcs.reduce((s,c)=>s+c.profit,0); let pipeline=contracts.filter(c=>c.status!=='Active').reduce((s,c)=>s+calc(c).annual,0); return {active,annual,profit,mrr:annual/12,pipeline, exp30:contracts.filter(c=>daysUntil(endDate(c))>0&&daysUntil(endDate(c))<=30).length, exp60:contracts.filter(c=>daysUntil(endDate(c))>30&&daysUntil(endDate(c))<=60).length, exp90:contracts.filter(c=>daysUntil(endDate(c))>60&&daysUntil(endDate(c))<=90).length}}
+function renderDashboard(){let m=metrics(); let ranked=[...contracts].sort((a,b)=>calc(b).annual-calc(a).annual); $('#dashboard').innerHTML=`<div class="topbar"><div><span class="eyebrow">Internal dashboard</span><h1>Maintenance Proposal Platform</h1><p class="muted">Recurring revenue, contract risk and proposal pipeline in one place.</p></div><button class="btn primary" onclick="setView('new-contract')">New Proposal</button></div><div class="hero"><div><span class="pill">01</span><h2>Upload assets, apply costing rules and generate a client-ready proposal.</h2><p>Built for internal Paramount use: customer details, asset schedules, commercial margins, internal profit review and customer-facing maintenance documents.</p></div><div class="hero-box"><span>Pipeline value</span><strong>${money(m.pipeline)}</strong><small>Draft and outstanding proposals</small></div></div><div class="kpi-grid">${kpi('Total active contracts',m.active)}${kpi('Total contracts value',money(m.annual))}${kpi('Monthly recurring revenue',money(m.mrr))}${kpi('Projected gross profit',money(m.profit),'accent')}${kpi('Expiring in 30 days',m.exp30,'accent')}${kpi('Expiring in 90 days',m.exp90,'accent')}</div><div class="split"><div class="panel"><h3>Revenue forecast</h3>${ranked.map(c=>{let a=calc(c).annual;let pct=Math.min(100,a/(calc(ranked[0]).annual||1)*100);return `<div class="forecast-row"><span>${c.customerName}</span><div class="bar"><i style="width:${pct}%"></i></div><b>${money(a)}</b></div>`}).join('')}</div><div class="panel"><h3>Contracts needing attention</h3>${contracts.filter(c=>c.status!=='Active').map(c=>`<div class="attention-card"><b>${c.customerName}</b><br><span class="muted">${c.status} · ${money(calc(c).annual)} · ${calc(c).margin.toFixed(1)}% margin</span></div>`).join('')}</div></div>`}
+function kpi(label,value,cls=''){return `<div class="kpi ${cls}"><span>${label}</span><strong>${value}</strong></div>`}
+function renderContracts(){let selected=contracts.find(c=>c.id===selectedId)||contracts[0]; let cc=calc(selected); $('#contracts').innerHTML=`<div class="topbar"><div><span class="eyebrow">Internal review</span><h1>Maintenance Contracts Generated</h1><p class="muted">Click a contract to review value, cost, profit and margin.</p></div></div><div class="panel"><table class="table"><thead><tr><th>Customer</th><th>Status</th><th>Annual value</th><th>Profit</th><th>Margin</th><th>Expiry</th></tr></thead><tbody>${contracts.map(c=>{let x=calc(c);return `<tr onclick="selectedId='${c.id}';renderContracts()" style="cursor:pointer"><td><b>${c.customerName}</b><br><span class="muted">${c.id}</span></td><td><span class="status ${c.status}">${c.status}</span></td><td>${money(x.annual)}</td><td>${money(x.profit)}</td><td>${x.margin.toFixed(1)}%</td><td>${endDate(c).toLocaleDateString('en-AU')}</td></tr>`}).join('')}</tbody></table></div><div class="contract-detail"><h2>${selected.customerName}</h2><div class="kpi-grid">${kpi('Projected cost',money(cc.cost))}${kpi('Customer charge',money(cc.annual))}${kpi('Projected profit',money(cc.profit),'accent')}${kpi('Margin',cc.margin.toFixed(1)+'%')}</div><table class="table"><thead><tr><th>Asset</th><th>Qty</th><th>Frequency</th><th>Cost</th></tr></thead><tbody>${cc.rows.map(r=>`<tr><td>${r.type}</td><td>${r.quantity}</td><td>${r.frequency}</td><td>${money(r.cost)}</td></tr>`).join('')}</tbody></table><div class="actions"><button class="btn primary" onclick="downloadProposal('${selected.id}')">Download client proposal</button></div></div>`}
+function renderNewContract(){ $('#new-contract').innerHTML=`<div class="topbar"><div><span class="eyebrow">New contract setup</span><h1>Create Maintenance Proposal</h1><p class="muted">Manually add assets or upload a CSV, then generate a polished customer-facing proposal.</p></div></div><div class="panel"><h2>Customer details</h2><div class="form-grid"><div class="field"><label>Customer name</label><input id="customerName" value="Apple Bees"></div><div class="field"><label>Site address</label><input id="siteAddress" value="12 Orchard Road, Melbourne VIC"></div><div class="field"><label>Contact person</label><input id="contactPerson" value="Facilities Manager"></div><div class="field"><label>Email</label><input id="email" value="facilities@applebees.example"></div><div class="field"><label>Phone</label><input id="phone" value="03 9000 0000"></div><div class="field"><label>Start date</label><input id="startDate" type="date" value="2026-07-01"></div><div class="field"><label>Term months</label><input id="term" type="number" value="12"></div><div class="field"><label>Target margin %</label><input id="margin" type="number" value="38"></div><div class="field"><label>Status</label><select id="status"><option>Draft</option><option>Outstanding</option><option>Active</option></select></div></div></div><div class="panel"><h2>Uploads</h2><div class="split"><div class="upload-box"><b>Upload asset list CSV</b><p class="muted">CSV columns: type, quantity, frequency. Upload works in-browser for this test.</p><input type="file" id="assetUpload" accept=".csv,.json"><div id="uploadMessage" class="muted"></div></div><div class="upload-box"><b>Upload customer documents</b><p class="muted">Placeholder for future AI document reading.</p><input type="file" multiple></div></div></div><div class="panel"><h2>Manual asset list</h2><div id="assetRows"></div><button class="btn" onclick="addAssetRow()">+ Add asset</button><div class="actions"><button class="btn navy" onclick="previewCosting()">Preview Internal Costing</button><button class="btn primary" onclick="generateAndDownload()">Generate & Download Contract</button></div><div id="costPreview"></div></div>`; renderAssetRows(); $('#assetUpload').addEventListener('change',handleAssetUpload)}
+function renderAssetRows(){let root=$('#assetRows'); if(!root)return; root.innerHTML=workingAssets.map((a,i)=>`<div class="asset-editor"><select onchange="workingAssets[${i}].type=this.value">${Object.keys(COSTING_RULES).map(t=>`<option ${a.type===t?'selected':''}>${t}</option>`).join('')}</select><input type="number" value="${a.quantity}" min="1" onchange="workingAssets[${i}].quantity=this.value"><select onchange="workingAssets[${i}].frequency=this.value"><option ${a.frequency==='Monthly'?'selected':''}>Monthly</option><option ${a.frequency==='Quarterly'?'selected':''}>Quarterly</option><option ${a.frequency==='Six Monthly'?'selected':''}>Six Monthly</option></select><button class="btn small" onclick="workingAssets.splice(${i},1);renderAssetRows()">Remove</button></div>`).join('')}
+function addAssetRow(){workingAssets.push({type:'Split System',quantity:1,frequency:'Quarterly'});renderAssetRows()}
+function readForm(){return {id:'PMA-'+Math.floor(26000+contracts.length+1),customerName:$('#customerName').value,siteAddress:$('#siteAddress').value,contactPerson:$('#contactPerson').value,email:$('#email').value,phone:$('#phone').value,startDate:$('#startDate').value,term:Number($('#term').value),margin:Number($('#margin').value),status:$('#status').value,assets:JSON.parse(JSON.stringify(workingAssets))}}
+function previewCosting(){let c=readForm(), x=calc(c); $('#costPreview').innerHTML=`<div class="contract-detail"><h3>Internal costing preview</h3><div class="kpi-grid">${kpi('Projected cost',money(x.cost))}${kpi('Charge value',money(x.annual))}${kpi('Profit',money(x.profit),'accent')}${kpi('Margin',x.margin.toFixed(1)+'%')}</div></div>`}
+function generateAndDownload(){let c=readForm(); contracts.unshift(c); selectedId=c.id; toast('Contract created and proposal downloaded.'); renderAll(); downloadProposal(c.id); setView('contracts')}
+function handleAssetUpload(e){let file=e.target.files[0]; if(!file)return; let reader=new FileReader(); reader.onload=()=>{let lines=reader.result.split(/\r?\n/).filter(Boolean); let header=lines.shift().split(',').map(h=>h.trim().toLowerCase()); workingAssets=lines.map(line=>{let cols=line.split(',').map(x=>x.trim()); let obj={}; header.forEach((h,i)=>obj[h]=cols[i]); return {type:obj.type||obj['asset type']||'Split System',quantity:Number(obj.quantity||obj.qty||1),frequency:obj.frequency||'Quarterly'}}); renderAssetRows(); $('#uploadMessage').textContent=`Loaded ${workingAssets.length} assets.`}; reader.readAsText(file)}
+function proposalHTML(c){let x=calc(c); let assets=x.rows.map(r=>`<tr><td>${r.type}</td><td>${r.quantity}</td><td>${r.frequency}</td><td>${r.risk}</td></tr>`).join(''); return `<article class="proposal-document"><section class="proposal-cover"><div class="proposal-logo"><div class="mark">P</div><div><div class="word">Paramount</div><div>Comfort Engineered for Australia</div></div></div><div class="cover-pill">PREVENTATIVE MAINTENANCE PROPOSAL</div><h1 style="color:white;margin-top:35px">${c.customerName}</h1><p>${c.siteAddress}</p><p style="margin-top:60px">Proposal reference ${c.id}</p></section><section class="proposal-section"><h2>Commercial summary</h2><div class="summary-cards"><div class="summary-card"><span>Annual contract value</span><strong>${money(x.annual)}</strong></div><div class="summary-card"><span>Contract term</span><strong>${c.term} months</strong></div><div class="summary-card"><span>Prepared date</span><strong>24 June 2026</strong></div></div></section><section class="proposal-section"><h2>Executive summary</h2><p>Paramount Airconditioning has prepared a preventative maintenance program for ${c.customerName}. The program is designed to support reliable HVAC operation, reduce unplanned outages and provide clear reporting on asset condition.</p><p>The proposed service schedule covers ${c.assets.reduce((s,a)=>s+Number(a.quantity),0)} maintained assets across ${[...new Set(c.assets.map(a=>a.type))].join(', ')}.</p></section><section class="proposal-section"><h2>Asset schedule</h2><table class="table"><thead><tr><th>Asset type</th><th>Quantity</th><th>Frequency</th><th>Risk</th></tr></thead><tbody>${assets}</tbody></table></section><section class="proposal-section"><h2>Maintenance methodology</h2><div class="method-grid">${[...new Set(c.assets.map(a=>a.type))].map(t=>`<div class="method"><h3>${t}</h3><p>Preventative inspection, operational testing, electrical checks, condition reporting and practical recommendations following each attendance.</p></div>`).join('')}</div></section><section class="proposal-section"><h2>Annual service calendar</h2><div class="calendar-grid">${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i)=>`<div class="month"><strong>${m}</strong><span>${i%3===0?'Quarterly service visit':i%2===0?'Monthly assets':'Monitoring / reporting'}</span></div>`).join('')}</div></section><section class="proposal-section"><h2>Acceptance</h2><p>Accepted for and on behalf of ${c.customerName}</p><br><p>Signature: ______________________________ Date: ________________</p><p>Name: _________________________________ Position: ______________</p></section></article>`}
+function downloadProposal(id){let c=contracts.find(x=>x.id===id)||contracts[0]; let html=`<!doctype html><html><head><title>${c.customerName} Proposal</title><link rel="stylesheet" href="styles.css"></head><body>${proposalHTML(c)}</body></html>`; let blob=new Blob([html],{type:'text/html'}); let a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${c.customerName.replace(/\s+/g,'-')}-Maintenance-Proposal.html`; a.click(); URL.revokeObjectURL(a.href)}
+function renderSettings(){ $('#settings').innerHTML=`<div class="topbar"><div><span class="eyebrow">Prototype settings</span><h1>Costing Rules</h1><p class="muted">Fake estimating rules for demo purposes.</p></div></div><div class="panel"><table class="table"><thead><tr><th>Asset</th><th>Labour hours</th><th>Default visits</th><th>Materials / visit</th><th>Risk</th></tr></thead><tbody>${Object.entries(COSTING_RULES).map(([k,v])=>`<tr><td>${k}</td><td>${v.labourHours}</td><td>${v.visits}</td><td>${money(v.materials)}</td><td>${v.risk}</td></tr>`).join('')}</tbody></table></div>`}
+function renderAll(){renderDashboard();renderContracts();renderNewContract();renderSettings()}
+function toast(msg){let t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
+$$('.nav-link').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
 renderAll();
