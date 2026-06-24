@@ -1,11 +1,3 @@
-# Paramount Maintenance Contracts V3
+# Paramount Maintenance Contracts V5
 
-Static GitHub Pages prototype.
-
-Upload all files to the repository root:
-- index.html
-- styles.css
-- data.js
-- app.js
-
-Use Proposal Preview to print/save a client-facing proposal PDF.
+This version removes the separate Proposal Preview page. New Contract Set Up now generates the contract and automatically downloads the client-facing proposal file, then adds the contract to Maintenance Contracts Generated.
